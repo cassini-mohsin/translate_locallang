@@ -1,6 +1,6 @@
 <f:be.container
 		includeCssFiles="{0: '{f:uri.resource(path:\'Css/translate.css\')}'}"
-		includeJsFiles="{0: '{f:uri.resource(path:\'Js/translate.js\')}'}"
+		includeJsFiles="{0: '{f:uri.resource(path:\'JavaScript/translate.js\')}'}"
 		pageTitle="translate">
 	<div class="module">
 		<div class="module-docheader">
@@ -8,8 +8,8 @@
 				<div class="module-docheader-bar module-docheader-bar-navigation">
 					<div class="module-docheader-bar-column-left">
 						<f:be.menus.actionMenu>
-							<f:be.menus.actionMenuItem label="{f:translate(key:'title')}" controller="Module" action="list" />
-							<f:be.menus.actionMenuItem label="{f:translate(key:'search')}" controller="Module" action="search" />
+							<f:be.menus.actionMenuItem label="{f:translate(key:'title')->f:format.html()}" controller="Module" action="list" />
+							<f:be.menus.actionMenuItem label="{f:translate(key:'search')->f:format.html()}" controller="Module" action="search" />
 						</f:be.menus.actionMenu>
 					</div>
 					<div class="module-docheader-bar-column-right">

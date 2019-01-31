@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
 namespace Undefined\TranslateLocallang\Service;
 
 /***************************************************************
@@ -54,27 +55,39 @@ class XliffService
     protected $useL10n = TRUE;
 
     /**
+    * @var bool
+    */
+    protected $lockSourceLang = TRUE;
+
+    /**
     * @var string
     */
     protected $sourcelang = 'en';
 
     /**
+    * @var int
+    */
+    protected $labelcount = 0;
+
+    /**
     * @var array
     */
-    protected $labelcount = [];
+    protected $languageLoaded = [];
 
     /**
      * @param string $extension
      * @param string $file
      * @param string $sourcelang
      * @param bool $useL10n
+     * @param bool $lockSourceLang
      * @return void
      */
-    public function init($extension, $file, $sourcelang = 'en', $useL10n = TRUE) {
+    public function init(string $extension, string $file, string $sourcelang = 'en', bool $useL10n = TRUE, bool $lockSourceLang = FALSE) {
         $this->extension = $extension;
         $this->file = $file;
         $this->sourcelang = $sourcelang;
         $this->useL10n = $useL10n;
+        $this->lockSourceLang = $lockSourceLang;
     }
 
     /**
@@ -83,11 +96,10 @@ class XliffService
      * @param string $langKey
      * @return bool
      */
-    public function loadLang($langKey) {
+    public function loadLang(string $langKey = 'default'): bool {
         //Note: This does not use TYPO3\CMS\Core\Localization\Parser\XliffParser because of CDATA support
         //load default data first
-        if ($this->getLabelCount('default') === NULL) {
-            $this->labelcount[$langKey] = 0;
+        if (!$this->isLanguageLoaded('default')) {
             $this->data = [];
             $fileref = TranslateUtility::getXlfPath($this->extension, $this->file, 'default', FALSE);
             if(!$this->loadFile($fileref, 'default', TRUE)) {
@@ -97,7 +109,6 @@ class XliffService
 
         //load overlay data
         if ($langKey !== 'default') {
-            $this->labelcount[$langKey] = 0;
             //check for file in typo3conf/ext first
             $fileref = TranslateUtility::getXlfPath($this->extension, $this->file, $langKey, FALSE);
 
@@ -113,15 +124,11 @@ class XliffService
                 return FALSE;
             }
             //set missing labels to ''
-            $count = 0;
             foreach($this->data as $key => $value) {
                 if (!isset($value[$langKey])) {
                     $this->data[$key][$langKey] = '';
-                } else {
-                    $count++;
                 }
             }
-            $this->labelcount[$langKey] = $count;
         }
 
         return TRUE;
@@ -131,7 +138,7 @@ class XliffService
      * @param string $langKey
      * @return bool
      */
-    public function saveLang($langKey) {
+    public function saveLang(string $langKey): bool {
         $xliff = $this->renderLang($langKey);
         if (!$xliff) {
             return FALSE;
@@ -150,30 +157,37 @@ class XliffService
     /**
      * @return array
      */
-    public function &getData() {
+    public function &getData(): array {
         //return a reference to the array
         return $this->data;
     }
 
     /**
      * @param array $data
+     * @param array $langKeys
      * @return void
      */
-    public function setData($data) {
-        $this->data = $data;
-        $first = reset($this->data);
-        if ($first) {
-            foreach($first as $langKey => $label) {
-                $this->labelcount[$langKey] = 0;
+    public function mergeData(array $data, array $langKeys) {
+        if (!$this->lockSourceLang) {
+            //overwrite all data
+            $this->data = $data;
+        } else {
+            //change existing labels only
+            if (!$this->isLanguageLoaded('default')) {
+                $this->loadLang('default');
             }
-        }
-        foreach($this->data as $value) {
-            foreach($value as $langKey => $label) {
-                if ($label) {
-                    $this->labelcount[$langKey]++;
+            foreach($this->data as $key => $value) {
+                foreach($langKeys as $langKey => $langLabel) {
+                    if (isset($data[$key][$langKey])) {
+                        $this->data[$key][$langKey] = $data[$key][$langKey];
+                    }
                 }
             }
         }
+        foreach($langKeys as $langKey => $langLabel) {
+            $this->languageLoaded[$langKey] = TRUE;
+        }
+        $this->labelcount = count($this->data);
     }
 
     /**
@@ -182,11 +196,11 @@ class XliffService
      * @param string $langKey
      * @return void
      */
-    public function addLang($langKey) {
+    public function addLang(string $langKey) {
         foreach($this->data as $key => $dummy) {
             $this->data[$key][$langKey] = '';
         }
-        $this->labelcount[$langKey] = 0;
+        $this->languageLoaded[$langKey] = TRUE;
     }
 
     /**
@@ -194,7 +208,7 @@ class XliffService
      * @param string $newKey
      * @return void
      */
-    public function changeKey($oldKey, $newKey) {
+    public function changeKey(string $oldKey, string $newKey) {
         //replace the array key
         if(!isset($this->data[$oldKey])) {
             return;
@@ -216,34 +230,40 @@ class XliffService
      * @return void
      */
     public function sortByKey() {
-        ksort($this->data);
+        if (!$this->lockSourceLang){
+            ksort($this->data);
+        }
     }
 
     /**
      * @param string $langKey
      * @return string
      */
-    public function getFilename($langKey) {
+    public function getFilename(string $langKey): string {
         return TranslateUtility::getXlfPath($this->extension, $this->file, $langKey, $this->useL10n);
     }
 
     /**
-     * @param string $langKey
      * @return int
      */
-    public function getLabelCount($langKey) {
-        if (isset($this->labelcount[$langKey])) {
-            return $this->labelcount[$langKey];
-        }
-        return NULL;
+    public function getLabelCount(): int {
+        return $this->labelcount;
     }
 
     /**
      * @param string $langKey
-     * @return int
+     * @return bool
      */
-    public function fileExists($langKey) {
-        return is_file($this->getFilename($langkey));
+    public function isLanguageLoaded(string $langKey): bool {
+        return (isset($this->languageLoaded[$langKey]) && $this->labelcount > 0); //XXX
+    }
+
+    /**
+     * @param string $langKey
+     * @return bool
+     */
+    public function fileExists(string $langKey): bool {
+        return is_file($this->getFilename($langKey));
     }
 
     /**
@@ -254,7 +274,7 @@ class XliffService
      * @param bool $addkeys
      * @return bool
      */
-    protected function loadFile($fileref, $langKey = 'default', $addkeys = TRUE) {
+    protected function loadFile(string $fileref, string $langKey = 'default', bool $addkeys = TRUE): bool {
         if (!is_file($fileref)) {
             return FALSE;
         }
@@ -296,6 +316,8 @@ class XliffService
             }
             $this->data[$key][$langKey] = $value;
         }
+        $this->labelcount = count($this->data);
+        $this->languageLoaded[$langKey] = TRUE;
 
         return TRUE;
     }
@@ -304,7 +326,7 @@ class XliffService
      * @param string $langKey
      * @return string
      */
-    protected function renderLang($langKey) {
+    protected function renderLang(string $langKey): string {
         //matches the format used by TYPO3\CMS\Core\Localization\Parser\XliffParser
         $labels = [];
         foreach($this->data as $key => $dummy) {
@@ -318,7 +340,7 @@ class XliffService
         }
         $objectManager = GeneralUtility::makeInstance('TYPO3\\CMS\\Extbase\\Object\\ObjectManager');
         $xliffview = $objectManager->get('TYPO3\\CMS\\Fluid\\View\\StandaloneView');
-        $xliffview->setTemplatePathAndFilename(PATH_typo3conf . 'ext/translate_locallang/Resources/Private/Templates/Xliff.html');
+        $xliffview->setTemplatePathAndFilename(TranslateUtility::getConfigPath() . '/ext/translate_locallang/Resources/Private/Templates/Xliff.html');
 
         date_default_timezone_set('UTC');
         $xliffview->assignMultiple([
@@ -335,7 +357,7 @@ class XliffService
      * @param string $str
      * @return string
      */
-    protected function encodeValue($str) {
+    protected function encodeValue(string $str): string {
         if (strpos(ltrim($str), static::CDATA_START) === 0) {
             return ltrim($str);
         } else {
